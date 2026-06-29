@@ -109,6 +109,7 @@ INPUT_COLUMNS = [
 MARKETPLACES = ["FR", "IT", "ES", "NL", "PL", "IE", "SE"]
 DIRECT_MARKETPLACES = {"FR", "IT", "ES"}
 AI_FALLBACK_MARKETPLACES = {"NL", "PL", "IE", "SE"}
+BRIDGE_MARKETPLACES = ["FR", "IT", "ES"]
 DIRECT_COLUMNS = {"FR": "Node Id in FR", "IT": "Node Id in IT", "ES": "Node Id in ES"}
 REQUIRED_MAPPING_COLUMNS = ["Node root", "Node ID", "Node Path", "Node Id in FR", "Node Id in IT", "Node Id in ES"]
 INPUT_REQUIRED_ANY = ["product type", "NODE ID", "Amazon category name", "category name eng", "PIM category name", "EAN"]
@@ -1320,7 +1321,12 @@ def category_records_for_marketplace(category_index: Dict[Tuple[str, str], Dict[
     return [r for (m, _), r in category_index.items() if m == mp]
 
 
-def btg_similarity_mapping(category_index: Dict[Tuple[str, str], Dict[str, str]], row: Dict[str, Any], marketplace: str) -> Dict[str, str]:
+def btg_similarity_mapping(
+    category_index: Dict[Tuple[str, str], Dict[str, str]],
+    mapping_index: Dict[str, Dict[str, str]],
+    row: Dict[str, Any],
+    marketplace: str
+) -> Dict[str, str]:
     """
     Sigurniji fallback bez direktnog European mapping stupca.
     Prvo se uzima DE node iz BTG-a, zatim se u ciljnom marketplaceu gleda samo ista BTG obitelj
@@ -1335,8 +1341,38 @@ def btg_similarity_mapping(category_index: Dict[Tuple[str, str], Dict[str, str]]
     source_name = clean(source_rec.get("category_name")) if source_rec else ""
     source_file = clean(source_rec.get("source")) if source_rec else ""
 
-    fallback_text = " | ".join(clean(row.get(c)) for c in ["Amazon category name", "category name eng", "PIM category name", "product type"] if clean(row.get(c)))
-    query_text = " | ".join(x for x in [source_path, source_name, fallback_text] if x)
+    fallback_text = " | ".join(
+    clean(row.get(c))
+    for c in ["Amazon category name", "category name eng", "PIM category name", "product type"]
+    if clean(row.get(c))
+)
+
+    # Bridge prijevod:
+    # Ako DE pojam nije dobro prepoznat, pokušavamo uzeti FR/IT/ES kategorije
+    # preko službenog European Browse Node Mappinga i koristiti ih samo kao pomoć za similarity.
+    bridge_texts: List[str] = []
+    bridge_used: List[str] = []
+
+    if source_node_id:
+        for bridge_mp in BRIDGE_MARKETPLACES:
+            if bridge_mp == mp:
+                continue
+
+            try:
+                bridge = direct_mapping(mapping_index, category_index, source_node_id, bridge_mp)
+
+                bridge_value = clean(bridge.get("category_value"))
+                bridge_name = clean(bridge.get("category_name"))
+                bridge_node = clean(bridge.get("target_node_id"))
+
+                if bridge_node and (bridge_value or bridge_name):
+                    bridge_texts.append(f"{bridge_mp}: {bridge_value} | {bridge_name}")
+                    bridge_used.append(bridge_mp)
+            except Exception:
+                pass
+
+    query_text = " | ".join(x for x in [source_path, source_name, fallback_text, *bridge_texts] if x)
+    bridge_info = ",".join(bridge_used) if bridge_used else "-"
     if not query_text:
         return {"target_node_id": "", "category_value": "", "status": "NO_SOURCE_CATEGORY", "note": "Nema DE BTG patha ni naziva kategorije u ulazu za usporedbu.", "category_name": "", "confidence": "0"}
 
@@ -1369,8 +1405,18 @@ def btg_similarity_mapping(category_index: Dict[Tuple[str, str], Dict[str, str]]
     source_depth = path_depth(source_path or query_text)
     query_norm = normalize_match_text(query_text)
     leaf_norm = normalize_match_text(leaf_name(source_path or query_text))
-    source_concepts = concepts_from_text(" | ".join([source_path, source_name, fallback_text]))
-    must_have_concepts = required_leaf_concepts(source_path or source_name or query_text)
+    source_concepts = concepts_from_text(" | ".join([source_path, source_name, fallback_text, *bridge_texts]))
+
+    # Prvo pokušaj tražiti bitan leaf concept iz DE kategorije.
+    # Ako DE nije prepoznat, pokušaj iz FR/IT/ES bridge kategorija.
+    must_have_concepts = required_leaf_concepts(source_path or source_name)
+
+    if not must_have_concepts:
+        for bridge_text in bridge_texts:
+            must_have_concepts |= required_leaf_concepts(bridge_text)
+
+    if not must_have_concepts:
+        must_have_concepts = required_leaf_concepts(query_text)
 
     best: Dict[str, str] | None = None
     best_score = -1.0
@@ -1433,7 +1479,7 @@ def btg_similarity_mapping(category_index: Dict[Tuple[str, str], Dict[str, str]]
             "target_node_id": "",
             "category_value": "",
             "status": "NO_SAFE_BTG_MATCH",
-            "note": f"Nema sigurnog {mp} prijedloga. Kandidati iz krivih BTG obitelji su preskočeni ({wrong_family_count}); traženi leaf concepts={','.join(sorted(must_have_concepts)) or '-'}; source concepts={','.join(sorted(source_concepts)) or '-'}.",
+            "note": f"Nema sigurnog {mp} prijedloga. Bridge={bridge_info}; kandidati iz krivih BTG obitelji su preskočeni ({wrong_family_count}); traženi leaf concepts={','.join(sorted(must_have_concepts)) or '-'}; source concepts={','.join(sorted(source_concepts)) or '-'}.",
             "category_name": "",
             "confidence": "0",
         }
@@ -1450,7 +1496,7 @@ def btg_similarity_mapping(category_index: Dict[Tuple[str, str], Dict[str, str]]
             "target_node_id": "",
             "category_value": "",
             "status": "NO_SAFE_BTG_MATCH",
-            "note": f"Najbliži {mp} BTG zapis nije dovoljno siguran. Score={round(best_score, 1)}, threshold={threshold}, source_family={source_family or '-'}, best_family={best_family or '-'}, overlap={','.join(sorted(best_concept_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}.",
+            "note": f"Najbliži {mp} BTG zapis nije dovoljno siguran. Bridge={bridge_info}, Score={round(best_score, 1)}, threshold={threshold}, source_family={source_family or '-'}, best_family={best_family or '-'}, overlap={','.join(sorted(best_concept_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}.",
             "category_name": "",
             "confidence": "0",
         }
@@ -1459,7 +1505,7 @@ def btg_similarity_mapping(category_index: Dict[Tuple[str, str], Dict[str, str]]
         "target_node_id": target_node_id,
         "category_value": target_path,
         "status": "BTG_SIMILAR_NEEDS_REVIEW",
-        "note": f"Prijedlog iz iste BTG obitelji + prijevodni concept match. Score={round(best_score, 1)}, family={best_family or source_family or '-'}, overlap={','.join(sorted(best_concept_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}, depth={source_depth}->{best_depth}. Ručno provjeriti prije potvrde.",
+        "note": f"Prijedlog iz iste BTG obitelji + prijevodni concept match. Bridge={bridge_info}, Score={round(best_score, 1)}, family={best_family or source_family or '-'}, overlap={','.join(sorted(best_concept_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}, depth={source_depth}->{best_depth}. Ručno provjeriti prije potvrde.",
         "category_name": target_name,
         "confidence": str(confidence),
     }
@@ -1641,7 +1687,7 @@ def process_file(input_path: Path, mapping_path: Path, output_path: Path, market
                     continue
 
             # Za NL/PL/IE/SE i za direktne države bez mappinga: pokušaj iz BTG foldera po sličnosti.
-            btg_guess = btg_similarity_mapping(category_index, row, mp)
+            btg_guess = btg_similarity_mapping(category_index, mapping_index, row, mp)
             if clean(btg_guess.get("target_node_id")):
                 set_marketplace_result(
                     row, mp,
