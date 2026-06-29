@@ -8,7 +8,6 @@ Datum: 29.06.2026.
 |<p>**Najvažnije pravilo**</p><p>Da bi mapiranje radilo, u ulaznoj datoteci mora biti vidljiv njemački Amazon Node ID. Program polazi od DE node ID-a i preko njega pokušava pronaći odgovarajuće kategorije za označene države.</p>|
 |-|
 
-!\[]()
 <img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.001.png" alt="Primjer foldera aplikacije s BTG folderom">
 ***Slika 1. Glavni prozor aplikacije***
 
