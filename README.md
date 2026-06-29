@@ -1,4 +1,4 @@
-﻿**Amazon Category Mapper**
+**Amazon Category Mapper**
 
 Korisnička dokumentacija i upute za pokretanje
 
@@ -238,5 +238,5 @@ Primjer rada u najkraćem obliku:
 |<p>**Završna napomena**</p><p>Najvažnije za ispravan rad je da ulaz ima njemački Node ID, da je Python backend pokrenut prije mapiranja i da su označene samo države koje korisnik želi dobiti u novom CSV-u.</p>|
 |-|
 
-
+**Bilo bi dobro da se od ovog napravi ML alat od postojeći ekselica za jezike NL PL IE SE**
 
