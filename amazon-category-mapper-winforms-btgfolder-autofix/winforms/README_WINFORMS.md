@@ -1,16 +1,28 @@
 # WinForms aplikacija
 
-Otvori `AmazonCategoryMapperWinForms.csproj` u Visual Studio 2022.
-
-Redoslijed:
+UI je pojednostavljen:
 
 1. Pokreni Python backend.
-2. Odaberi `BTG folder` i klikni `Uvezi cijeli BTG folder`.
-3. Odaberi ulazni CSV/XLSX. Za osnovno mapiranje dovoljan je stupac `NODE ID`.
-4. Odaberi Amazon European Browse Node Mapping Excel s `MAPPINGS` tabom.
-5. Označi `FR`, `IT`, `ES`.
-6. Klikni `Mapiraj CSV`.
-7. Ručno ispravi ako treba.
-8. Za ispravljene vrijednosti postavi `FR_status`, `IT_status`, itd. na `CORRECTED` ili `CONFIRMED`.
-9. Klikni `Spremi ispravke u learning bazu`.
-10. Spremi novi CSV.
+2. Odaberi samo ulazni CSV/XLSX/TXT.
+3. Odaberi države.
+4. Klikni Mapiraj.
+
+Više nema ručnog odabira:
+
+- Amazon MAPPINGS Excela
+- jednog category catalog/BTG filea
+- BTG foldera
+- OpenAI API keya
+
+Backend sam traži `BTG` folder i `mapping_file.xls/xlsx` u rootu projekta. Ako ih ne pronađe, status/greška će to javiti.
+
+
+## Novo u UI-ju
+
+Dodani su:
+
+- progress bar za trenutno mapiranje
+- tekstualni status obrade
+- gumb `Obriši BTG cache`
+
+`Obriši BTG cache` briše samo uvezene BTG/category podatke. Ne briše tvoje ručne ispravke koje si spremio preko `Spremi ručne ispravke`.

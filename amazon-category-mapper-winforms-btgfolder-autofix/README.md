@@ -1,152 +1,210 @@
-# Amazon Category Mapper - WinForms + Python backend + BTG folder importer
+# Amazon Category Mapper - auto BTG + prijevodni similarity
 
-Ova verzija je prilagođena workflowu gdje imaš:
+Ova verzija je složena za workflow:
 
-- ulazni CSV/XLSX koji može imati samo `NODE ID`, ili puni format s `product type`, `Amazon category name`, `EAN` itd.
-- Amazon European Browse Node Mapping Table s tabom `MAPPINGS`
-- puno Amazon BTG datoteka po marketplaceu i kategoriji, npr. grocery, garden, tools, home...
+- korisnik u WinForms aplikaciji učitava samo ulazni `CSV`, `XLSX` ili `TXT`
+- `TXT` može sadržavati samo njemačke/DE node ID-eve, jedan po retku
+- `mapping_file.xls/xlsx` se traži automatski u rootu projekta
+- `BTG` folder se traži automatski u rootu projekta
+- nema ručnog odabira category catalog/BTG datoteke
+- nema ručnog odabira Amazon mapping Excela u aplikaciji
+- dodan je progress bar
+- dodan je gumb `Obriši BTG cache`
+- dodan je gumb `Zaustavi Python`
+- kod zatvaranja WinForms prozora aplikacija šalje cancel/shutdown Python backendu
+- `UK`, `NORD` i svi `source/source_url` stupci se ne stavljaju u izlazni CSV
+- njemačka kategorija ide u izlaz kroz stupce `Node Id in DE` i `DE`
+- AI je maknut iz UI-ja i ugašen po defaultu; opcionalna konfiguracija je u `backend/ai_settings.py`
 
-## Što radi
+## Struktura foldera
 
-Za FR/IT/ES radi sigurno mapiranje bez izmišljanja:
-
-```text
-Ulazni DE/source NODE ID
-  ↓
-European Browse Node Mapping Table / MAPPINGS
-  ↓
-Node Id in FR / Node Id in IT / Node Id in ES
-  ↓
-lokalna SQLite baza s uvezenim BTG kategorijama
-  ↓
-FR / IT / ES stvarni Amazon category path
-```
-
-Ako u BTG bazi nema target nodea, program NE izmišlja naziv, nego stavlja status:
+Projekt treba ostati složen ovako:
 
 ```text
-DIRECT_NODE_MAPPING_NAME_MISSING
+amazon-category-mapper-auto-btg
+  BTG
+    DE
+      de_garden_browse_tree_guide.xls
+      de_kitchen_browse_tree_guide.xls
+      ...
+    FR
+    IT
+    ES
+    NL
+    PL
+    IE
+    SE
+  mapping_file.xls
+  amazon-category-mapper-winforms-btgfolder-autofix
+    backend
+    winforms
 ```
 
-## Je li dovoljno da input ima samo NODE ID?
-
-Da, za FR/IT/ES je dovoljno da ulazni CSV/XLSX ima barem stupac:
+Backend automatski traži:
 
 ```text
-NODE ID
+BTG
+mapping_file.xls / mapping_file.xlsx / *mapping*.xls*
 ```
 
-Primjer minimalnog CSV-a:
+Alternativno možeš postaviti environment varijable:
 
-```csv
-NODE ID
+```text
+BTG_FOLDER_PATH=C:\putanja\do\BTG
+MAPPING_FILE_PATH=C:\putanja\do\mapping_file.xls
+```
+
+## Ulazni format
+
+Možeš poslati puni CSV/XLSX sa stupcem `NODE ID`, ali dovoljno je i samo TXT:
+
+```text
 3597051031
 316968011
+4288535031
 ```
 
-Program će iz `MAPPINGS` taba dohvatiti `Node Id in FR`, `Node Id in IT`, `Node Id in ES`, a zatim iz uvezene BTG baze dohvatiti nazive/pathove kategorija.
+Svaki red je njemački/source DE node ID.
 
-## Kako organizirati BTG datoteke
+## Države
 
-Preporuka:
+U aplikaciji su ponuđene samo:
 
 ```text
-C:\AmazonBTG
-  FR
-    fr_grocery.xls
-    fr_garden.xls
-    fr_tools.xls
-  IT
-    it_grocery.xls
-    it_garden.xls
-    it_tools.xls
-  ES
-    es_grocery.xls
-    es_garden.xls
-    es_tools.xls
-  DE
-    de_food.xls
-    de_garden.xls
+FR, IT, ES, NL, PL, IE, SE
 ```
 
-Možeš imati puno kategorija. Alat rekurzivno čita cijeli folder i sve podfoldere.
+Ako neka država nije označena, ne ide u novi CSV. UK i NORD su izbačeni.
 
-BTG file obično mora imati stupce:
+## Kako mapiranje radi
+
+### FR/IT/ES
+
+Za ove države prvo se koristi direktni Amazon European Browse Node Mapping:
 
 ```text
-Node ID | Node Path | Refinement Link
+DE/source NODE ID -> mapping_file.xls MAPPINGS -> Node Id in FR/IT/ES -> naziv/path iz BTG foldera
 ```
 
-## Pokretanje
+To je najsigurniji dio jer postoji mapping stupac.
 
-1. Raspakiraj ZIP.
-2. Otvori `winforms/AmazonCategoryMapperWinForms/AmazonCategoryMapperWinForms.csproj` u Visual Studio 2022.
-3. Pokreni WinForms aplikaciju.
-4. Klikni `Pokreni Python backend`.
-5. U `BTG folder` odaberi folder gdje su svi BTG fileovi.
-6. Marketplace ostavi `AUTO` ako su fileovi/sheetovi nazvani npr. `fr-grocery`, `it-garden`, `es-tools`, ili su u folderima `FR`, `IT`, `ES`.
-7. Klikni `Uvezi cijeli BTG folder`.
-8. Odaberi ulazni CSV/XLSX.
-9. Odaberi Amazon European Browse Node Mapping Excel (`MAPPINGS` tab).
-10. Označi FR/IT/ES.
-11. Klikni `Mapiraj CSV`.
-12. Spremi novi CSV.
+### NL/PL/IE/SE
 
-## Za NL/PL/IE/SE
+Za ove države korisnik ne mora imati node ID-eve. Program radi ovako:
 
-Za te države trenutni European mapping file nema direktne stupce, pa ih alat ne može službeno mapirati iz tog Excela.
+```text
+DE node ID -> DE BTG path -> ista BTG obitelj target jezika -> prijevodni concept match -> najbolji target node ID
+```
 
-Ako uključiš OpenAI fallback, alat može pokušati dati preporuku, ali status ostaje za pregled (`AI_NEEDS_REVIEW` / `NEED_REVIEW`). To nije službeni potvrđeni rezultat dok ga korisnik ne potvrdi.
+Primjer: ako je DE node iz `de_garden`, za SE se traži samo po `se_garden`, ne po svim SE BTG datotekama.
 
-## Lokalna baza
+Dodao sam lokalni prijevodni sloj u:
 
-Sve uvezene BTG kategorije spremaju se u:
+```text
+backend/category_translation.py
+```
+
+Tamo su pojmovi za DE/EN/FR/ES/IT/NL/PL/SE, npr. `Mülltonnen`, `kosze na śmieci`, `waste bins`, `soptunnor`, `Wassertanks`, `zbiorniki na wodę`, itd.
+
+Program sada ne prihvaća prijedlog ako zadnji dio DE kategorije ima važan pojam koji target nema. Primjer:
+
+```text
+DE: Mülltonnen
+```
+
+ne smije završiti kao:
+
+```text
+PL: Naczynia kuchenne
+```
+
+I:
+
+```text
+DE: Unterirdische Wassertanks
+```
+
+ne smije završiti kao:
+
+```text
+PL: Donice na kwiaty
+```
+
+Ako nema dovoljno sigurnog prijevodnog poklapanja, rezultat ostaje prazan sa statusom `NO_SAFE_BTG_MATCH`, umjesto da upiše glupu kategoriju.
+
+## Statusi
+
+Najčešći statusi:
+
+- `DIRECT_MAPPING_WITH_NAME` - direktni node mapping + naziv/path iz BTG-a
+- `DIRECT_NODE_MAPPING_NAME_MISSING` - node ID postoji, ali nedostaje naziv/path jer target BTG nije učitan
+- `BTG_SIMILAR_NEEDS_REVIEW` - prijedlog po BTG + prijevodnoj sličnosti, ručno provjeriti
+- `NO_TARGET_BTG` - nema učitanih BTG kategorija za tu državu
+- `NO_TARGET_BTG_FAMILY` - nema odgovarajuće BTG obitelji za tu državu
+- `NO_SAFE_BTG_MATCH` - program nije našao dovoljno siguran prijedlog i radije je ostavio prazno
+- `LEARNED_MATCH` / `LEARNED_SIMILAR` - rezultat iz lokalne learning baze nakon ručnih potvrda
+
+## Progress bar i BTG cache
+
+WinForms prikazuje progress i tekstualni status, npr.:
+
+```text
+Tražim mapping_file.xls/xlsx
+Učitavam/obnavljam BTG cache
+Obrađujem red 25/500 za PL
+Pišem izlazni CSV
+```
+
+Backend koristi lokalni BTG cache u:
 
 ```text
 backend/data/learning.db
 ```
 
-Tablica:
+Cache nije slijep: ako se BTG datoteka promijeni po veličini ili datumu izmjene, backend je ponovno uvozi.
+
+Ako nisi siguran jesu li BTG podaci svježi, klikni:
 
 ```text
-category_catalog
+Obriši BTG cache
 ```
 
-Ključni podaci:
+To briše samo uvezene BTG/category podatke. Ručne ispravke i learning mapiranja ostaju.
+
+## Python stop
+
+Gumb:
 
 ```text
-marketplace | node_id | node_path | category_name | source_file
+Zaustavi Python
 ```
 
-Kasnije se ova logika može prebaciti na MySQL.
+šalje cancel aktivnom jobu i zatim shutdown backendu. Kod izlaska iz aplikacije radi se isto.
 
-## Nema pandas/numpy
+## AI fallback
 
-Backend namjerno ne koristi pandas/numpy zbog Windows Application Control policy problema. Koristi samo:
+AI je ugašen po defaultu. Ako kasnije stvarno zatreba, sve je u:
 
 ```text
-openpyxl
-xlrd
-sqlite3
-standardni Python
+backend/ai_settings.py
 ```
 
+Primjer:
 
-## Ažuriranje: automatski BTG folder import prije mapiranja
+```python
+AI_ENABLED = "true"
+OPENAI_API_KEY = "upiši_key_ovdje"
+OPENAI_MODEL = "gpt-4.1-mini"
+```
 
-Ako je u WinForms aplikaciji odabran `BTG folder`, backend ga sada automatski uveze/azurira prije mapiranja.
-To znači da je dovoljno:
+Nakon promjene restartaj backend. AI se koristi samo kao fallback i rezultat ostaje za pregled, ne kao potvrđena kategorija.
 
-1. Odabrati folder s BTG datotekama, npr. `C:\AmazonBTG`.
-2. Odabrati ulazni CSV/XLSX.
-3. Odabrati European Browse Node Mapping Table.
-4. Kliknuti `Mapiraj CSV`.
+## Pokretanje
 
-Možeš i dalje ručno kliknuti `Uvezi cijeli BTG folder`, ali više nije obavezno ako je folder upisan/odabran.
-
-Primjer: za source `NODE ID = 4288535031`, European mapping daje `Node Id in FR = 4338712031`.
-Ako je učitan FR garden BTG, alat popunjava:
-
-`FR = Jardin > Jardinage > Protection et anti-nuisibles pour jardin > Lutte contre les mauvaises herbes > Toiles de paillage`
-
-Ako želiš `Bordures pour jardin`, to je drugi FR node (`4338588031`), pa to nije isti direktni European mapping rezultat. Takav slučaj treba ručno ispraviti ili kasnije raditi kao AI/smart suggestion.
+1. Otvori `winforms/AmazonCategoryMapperWinForms/AmazonCategoryMapperWinForms.csproj` u Visual Studio 2022.
+2. Pokreni WinForms aplikaciju.
+3. Klikni `Pokreni Python backend`.
+4. Odaberi ulazni CSV/XLSX/TXT.
+5. Označi samo države koje želiš u izlazu.
+6. Klikni `Mapiraj`.
+7. Pregledaj rezultate i spremi novi CSV.
