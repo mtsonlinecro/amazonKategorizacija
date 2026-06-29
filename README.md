@@ -60,7 +60,7 @@ Prije rada treba provjeriti da se u folderu aplikacije nalaze potrebni podaci. K
 * za TXT ulaz svaki njemački Node ID može biti u zasebnom retku
 * za CSV/XLSX ulaz stupac s njemačkim node ID-em mora biti vidljiv i prepoznatljiv
 
-|<p>*Slika 2. Primjer foldera aplikacije s BTG folderom*</p>- !\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.002.png)
+|<p>*Slika 2. Primjer foldera aplikacije s BTG folderom*</p>- !(slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.002.png)
 |:-:|
 
 # **4. Ulazne datoteke**
