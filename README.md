@@ -8,8 +8,8 @@ Datum: 29.06.2026.
 |<p>**Najvažnije pravilo**</p><p>Da bi mapiranje radilo, u ulaznoj datoteci mora biti vidljiv njemački Amazon Node ID. Program polazi od DE node ID-a i preko njega pokušava pronaći odgovarajuće kategorije za označene države.</p>|
 |-|
 
-!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.001.png)
-
+!\[]()
+<img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.001.png" alt="Primjer foldera aplikacije s BTG folderom">
 ***Slika 1. Glavni prozor aplikacije***
 
 
@@ -105,13 +105,13 @@ Ovo je najvažniji dio dokumentacije. Koraci se izvode ovim redoslijedom.
 
 **11. Na kraju zaustavi Python.** Prije izlaza iz programa preporučeno je kliknuti Zaustavi Python kako backend ne bi ostao raditi u pozadini.
 
-|<p>*Slika 3. Odabir ulazne CSV/XLSX/TXT datoteke*</p><p>!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.003.png)</p>|
+|<p>*Slika 3. Odabir ulazne CSV/XLSX/TXT datoteke*</p><img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.003.png" alt="Primjer foldera aplikacije s BTG folderom">
 |:-:|
 
-|<p>*Slika 4. Odabir država i pokretanje Python backend-a*</p><p>!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.004.png)</p>|
+|<p>*Slika 4. Odabir država i pokretanje Python backend-a*</p><img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.004.png" alt="Primjer foldera aplikacije s BTG folderom">
 |:-:|
 
-|<p>*Slika 5. Progress bar tijekom mapiranja*</p><p>!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.005.png)</p>|
+|<p>*Slika 5. Progress bar tijekom mapiranja*</p><img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.005.png" alt="Primjer foldera aplikacije s BTG folderom">
 |:-:|
 
 # **6. Odabir država**
@@ -178,10 +178,10 @@ Nakon završetka mapiranja korisnik može spremiti novi CSV. Taj CSV se kasnije 
 
 
 
-|<p>*Slika 6. Prikaz rezultata i ručno uređivanje podataka*</p><p>!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.006.png)</p>|
+|<p>*Slika 6. Prikaz rezultata i ručno uređivanje podataka*</p><img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.006.png" alt="Primjer foldera aplikacije s BTG folderom">
 |:-:|
 
-|<p>*Slika 7. Spremanje novog CSV-a*</p><p>!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.007.png)</p>|
+|<p>*Slika 7. Spremanje novog CSV-a*</p><img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.007.png" alt="Primjer foldera aplikacije s BTG folderom">
 |:-:|
 
 # **10. BTG cache**
@@ -201,7 +201,7 @@ Python backend je odvojeni proces koji aplikacija koristi za obradu podataka. Zb
 
 Ako korisnik zatvara aplikaciju, program bi također trebao pokušati zaustaviti Python backend. Ipak, ručno zaustavljanje je jasnije i sigurnije jer korisnik odmah vidi da je backend ugašen.
 
-|<p>*Slika 8. Zaustavljanje Python backend-a prije izlaza iz programa*</p><p>!\[](slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.008.png)</p>|
+|<p>*Slika 8. Zaustavljanje Python backend-a prije izlaza iz programa*</p><img src="slike/Aspose.Words.13d4dda5-2808-41ff-91c0-48ab05cb9e26.008.png" alt="Primjer foldera aplikacije s BTG folderom">
 |:-:|
 
 # **12. Najčešće greške i rješenja**
