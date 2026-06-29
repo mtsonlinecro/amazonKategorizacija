@@ -10,4 +10,4 @@ if not exist .env (
     copy .env.example .env
 )
 python server.py
-pause
+exit /b

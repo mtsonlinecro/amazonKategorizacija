@@ -25,6 +25,7 @@ public class MainForm : Form
     private byte[]? _lastCsvBytes;
     private CancellationTokenSource? _progressPollingCts;
     private string? _activeJobId;
+    private bool _closingStarted = false;
 
     public MainForm()
     {
@@ -107,7 +108,7 @@ public class MainForm : Form
         _mapButton.Click += async (_, _) => await MapClicked();
         _clearCacheButton.Click += async (_, _) => await ClearCacheClicked();
         _stopBackendButton.Click += async (_, _) => await StopBackendClicked();
-        FormClosing += (_, _) => StopBackendOnExit();
+        FormClosing += MainForm_FormClosing;
         _saveCsvButton.Click += (_, _) => SaveCsvClicked();
         _saveCorrectionsButton.Click += async (_, _) => await SaveCorrectionsClicked();
     }
@@ -255,19 +256,35 @@ public class MainForm : Form
         }
     }
 
-
-    private void StopBackendOnExit()
+    private async void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
+        if (_closingStarted)
+            return;
+
+        e.Cancel = true;
+        _closingStarted = true;
+
         try
         {
+            _status.Text = "Status: zatvaram aplikaciju i zaustavljam Python...";
+            _mapButton.Enabled = false;
+            _clearCacheButton.Enabled = false;
+            _stopBackendButton.Enabled = false;
+
             _progressPollingCts?.Cancel();
+
             var jobId = _activeJobId;
             _activeJobId = null;
-            BackendRunner.StopBackendAsync(jobId).GetAwaiter().GetResult();
+
+            await BackendRunner.StopBackendAsync(jobId);
         }
         catch
         {
-            // Kod izlaza ne prikazujemo MessageBox da aplikacija može zatvoriti prozor.
+            // Ne prikazujemo grešku kod zatvaranja da se aplikacija stvarno može ugasiti.
+        }
+        finally
+        {
+            Close();
         }
     }
 
