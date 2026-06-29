@@ -30,6 +30,18 @@ except Exception:
     CRITICAL_LEAF_CONCEPTS = set()
     OPPOSING_CONCEPTS = {}
 
+try:
+    from translation_provider import translate_category_term, translation_info, clear_translation_cache
+except Exception:
+    def translate_category_term(text: str, source_lang: str, target_marketplace: str) -> Dict[str, str]:
+        return {"text": "", "provider": "none", "status": "unavailable", "note": "translation_provider.py nije dostupan"}
+
+    def translation_info() -> Dict[str, str]:
+        return {"translation_enabled": "false", "translation_provider": "unavailable", "translation_cache": ""}
+
+    def clear_translation_cache() -> Dict[str, Any]:
+        return {"deleted_translation_cache": False, "translation_cache": ""}
+
 HOST = "127.0.0.1"
 PORT = 8008
 BASE_DIR = Path(__file__).resolve().parent
@@ -200,6 +212,15 @@ COLUMN_ALIASES = {
     # input file
     "nodeidinput": "NODE ID",
     "node": "NODE ID",
+    "nodeidinde": "NODE ID",
+    "denodeid": "NODE ID",
+    "germannodeid": "NODE ID",
+    "browsenodeidde": "NODE ID",
+    "recommendedbrowsenodesde": "NODE ID",
+    "recommendedbrowsenodeidde": "NODE ID",
+    "recommendedbrowsepathde": "Amazon category name",
+    "decategory": "Amazon category name",
+    "germancategory": "Amazon category name",
     "producttype": "product type",
     "amazoncategoryname": "Amazon category name",
     "categorynameeng": "category name eng",
@@ -764,10 +785,12 @@ def find_default_mapping_file() -> Path | None:
 def project_auto_info() -> Dict[str, str]:
     btg = find_default_btg_folder()
     mapping = find_default_mapping_file()
-    return {
+    info = {
         "btg_folder": str(btg) if btg else "",
         "mapping_file": str(mapping) if mapping else "",
     }
+    info.update(translation_info())
+    return info
 
 
 def catalog_file_stamp(path: Path) -> Tuple[int, float]:
@@ -1179,17 +1202,17 @@ BTG_FAMILY_ALIASES = {
     "electronics": {"electronics", "ce", "consumer-electronics"},
     "fashion": {"fashion", "clothing", "shoes"},
     "grocery": {"grocery", "food"},
-    "garden": {"garden", "lawn-garden"},
+    "garden": {"garden", "lawn-garden", "garten", "gartenarbeit", "jardin", "giardino", "ogrod", "ogród", "tuin", "tradgard", "trädgård"},
     "health": {"health", "hpc", "drugstore"},
     "industrial": {"industrial"},
-    "kitchen": {"kitchen", "home", "home-kitchen"},
+    "kitchen": {"kitchen", "home", "home-kitchen", "kuche", "küche", "kuchnia", "cuisine", "cucina", "cocina", "keuken"},
     "lighting": {"lighting"},
     "music": {"musical-instruments", "music"},
     "office": {"office-products", "office"},
     "pets": {"pet-supplies", "pets"},
     "software": {"software"},
     "sports": {"sports", "sporting-goods", "sportinggoods"},
-    "tools": {"tools", "tools-sgp", "diy"},
+    "tools": {"tools", "tools-sgp", "diy", "werkzeug", "werkzeuge", "narzedzia", "narzędzia", "verktyg", "outils", "herramientas", "attrezzi"},
     "toys": {"toys", "games"},
     "videogames": {"videogames", "video-games", "video_games"},
 }
@@ -1262,6 +1285,99 @@ def concept_score(source_concepts: set[str], target_concepts: set[str]) -> float
     return 100.0 * len(overlap) / max(1, len(union))
 
 
+GENERIC_CONTEXT_CONCEPTS = {
+    "garden", "storage", "kitchen", "watering", "tools", "cleaning"
+}
+
+
+def specific_leaf_concepts(text: str) -> set[str]:
+    """Vraća samo specifične pojmove iz zadnjeg dijela kategorije."""
+    return concepts_from_text(leaf_name(text)) - GENERIC_CONTEXT_CONCEPTS
+
+
+def best_token_ratio(queries: List[str], candidate: str) -> float:
+    cand = normalize_match_text(candidate)
+    if not cand:
+        return 0.0
+    best = 0.0
+    for query in queries:
+        q = normalize_match_text(query)
+        if not q:
+            continue
+        # Ako je prijevod točno dio candidate patha, tretiramo kao jako dobar pogodak.
+        if f" {q} " in f" {cand} ":
+            best = max(best, 96.0)
+        best = max(best, token_sort_ratio(q, cand))
+    return best
+
+
+def unique_nonempty(values: List[str]) -> List[str]:
+    result: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = clean(value)
+        key = normalize_match_text(cleaned)
+        if cleaned and key and key not in seen:
+            result.append(cleaned)
+            seen.add(key)
+    return result
+
+
+def bridge_category_texts(mapping_index: Dict[str, Dict[str, str]], category_index: Dict[Tuple[str, str], Dict[str, str]], source_node_id: str, skip_marketplace: str = "") -> tuple[List[str], List[str]]:
+    """
+    FR/IT/ES službeni mapping se koristi samo kao pomoćni tekst za prijevod,
+    čak i kad korisnik te države nije označio za izlaz.
+    """
+    texts: List[str] = []
+    used: List[str] = []
+    for bridge_mp in BRIDGE_MARKETPLACES:
+        if bridge_mp == clean(skip_marketplace).upper():
+            continue
+        try:
+            bridge = direct_mapping(mapping_index, category_index, source_node_id, bridge_mp)
+        except Exception:
+            continue
+        category_value = clean(bridge.get("category_value"))
+        category_name = clean(bridge.get("category_name"))
+        if category_value or category_name:
+            texts.append(category_value or category_name)
+            leaf = leaf_name(category_value or category_name)
+            if leaf and leaf != category_value:
+                texts.append(leaf)
+            used.append(bridge_mp)
+    return unique_nonempty(texts), used
+
+
+def translated_leaf_queries(source_leaf: str, marketplace: str, bridge_texts: List[str]) -> tuple[List[str], List[str]]:
+    """
+    Prevodi samo zadnji dio kategorije, ne cijele BTG datoteke.
+    Npr. Rasenkanten -> obrzeża trawnikowe / gazonranden / lawn edging.
+    """
+    queries: List[str] = []
+    notes: List[str] = []
+
+    source_leaf = clean(source_leaf)
+    if source_leaf:
+        result = translate_category_term(source_leaf, "DE", marketplace)
+        if clean(result.get("text")):
+            queries.append(clean(result.get("text")))
+        notes.append(f"DE leaf translate={result.get('status', '-')}/{result.get('provider', '-')}")
+
+    # Bridge tekstovi su već lokalizirani FR/IT/ES kategorije. Prevodi se njihov leaf u target jezik.
+    # To pomaže kad njemačka složenica nije dobro prevedena.
+    for bridge_text in bridge_texts[:6]:
+        bridge_leaf = leaf_name(bridge_text)
+        if not bridge_leaf:
+            continue
+        result = translate_category_term(bridge_leaf, "AUTO", marketplace)
+        if clean(result.get("text")):
+            queries.append(clean(result.get("text")))
+        if result.get("status") not in {"cached", "translated", "same_language"}:
+            notes.append(f"bridge translate={result.get('status', '-')}/{result.get('provider', '-')}")
+
+    return unique_nonempty(queries), notes
+
+
 def strip_accents(text: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
 
@@ -1315,6 +1431,34 @@ def leaf_name(value: str) -> str:
         return clean(text.split("/")[-1])
     return text
 
+def category_path_parts(value: str) -> List[str]:
+    text = clean(value)
+    if not text:
+        return []
+
+    if ">" in text:
+        parts = [clean(p) for p in text.split(">") if clean(p)]
+    elif "/" in text:
+        parts = [clean(p) for p in text.split("/") if clean(p)]
+    else:
+        parts = [text]
+
+    generic_roots = {"kategorien", "categories", "category", "kategorie"}
+    return [p for p in parts if normalize_match_text(p) not in generic_roots]
+
+
+def parent_category_name(value: str) -> str:
+    parts = category_path_parts(value)
+    if len(parts) >= 2:
+        return parts[-2]
+    return ""
+
+
+def top_category_name(value: str) -> str:
+    parts = category_path_parts(value)
+    if parts:
+        return parts[0]
+    return ""
 
 def category_records_for_marketplace(category_index: Dict[Tuple[str, str], Dict[str, str]], marketplace: str) -> List[Dict[str, str]]:
     mp = marketplace.upper()
@@ -1328,10 +1472,15 @@ def btg_similarity_mapping(
     marketplace: str
 ) -> Dict[str, str]:
     """
-    Sigurniji fallback bez direktnog European mapping stupca.
-    Prvo se uzima DE node iz BTG-a, zatim se u ciljnom marketplaceu gleda samo ista BTG obitelj
-    (npr. de_garden -> pl_garden). Rezultat se prihvaća samo ako postoji dovoljno siguran
-    konceptualni overlap; inače ostaje prazno za ručnu provjeru.
+    Sigurniji fallback za NL/PL/IE/SE kada nema direktnog European mapping stupca.
+
+    Hijerarhija odluke:
+    1) BTG obitelj mora ostati ista ako se može prepoznati, npr. de_garden -> pl_garden.
+    2) Gornja kategorija/top, npr. Gartenarbeit, čuva širu kategoriju.
+    3) Parent, npr. Kompostierung & Gartenabfall, daje jak kontekst.
+    4) Leaf, npr. Komposte/Rasenkanten, ima najveću težinu za konkretan izbor.
+
+    Ako nije sigurno, vraća NO_SAFE_BTG_MATCH umjesto da upiše random kategoriju.
     """
     mp = marketplace.upper().strip()
     source_node_id = clean(row.get("NODE ID"))
@@ -1342,44 +1491,40 @@ def btg_similarity_mapping(
     source_file = clean(source_rec.get("source")) if source_rec else ""
 
     fallback_text = " | ".join(
-    clean(row.get(c))
-    for c in ["Amazon category name", "category name eng", "PIM category name", "product type"]
-    if clean(row.get(c))
-)
-
-    # Bridge prijevod:
-    # Ako DE pojam nije dobro prepoznat, pokušavamo uzeti FR/IT/ES kategorije
-    # preko službenog European Browse Node Mappinga i koristiti ih samo kao pomoć za similarity.
-    bridge_texts: List[str] = []
-    bridge_used: List[str] = []
-
-    if source_node_id:
-        for bridge_mp in BRIDGE_MARKETPLACES:
-            if bridge_mp == mp:
-                continue
-
-            try:
-                bridge = direct_mapping(mapping_index, category_index, source_node_id, bridge_mp)
-
-                bridge_value = clean(bridge.get("category_value"))
-                bridge_name = clean(bridge.get("category_name"))
-                bridge_node = clean(bridge.get("target_node_id"))
-
-                if bridge_node and (bridge_value or bridge_name):
-                    bridge_texts.append(f"{bridge_mp}: {bridge_value} | {bridge_name}")
-                    bridge_used.append(bridge_mp)
-            except Exception:
-                pass
-
-    query_text = " | ".join(x for x in [source_path, source_name, fallback_text, *bridge_texts] if x)
-    bridge_info = ",".join(bridge_used) if bridge_used else "-"
+        clean(row.get(c))
+        for c in ["Amazon category name", "category name eng", "PIM category name", "product type"]
+        if clean(row.get(c))
+    )
+    query_text = " | ".join(x for x in [source_path, source_name, fallback_text] if x)
     if not query_text:
-        return {"target_node_id": "", "category_value": "", "status": "NO_SOURCE_CATEGORY", "note": "Nema DE BTG patha ni naziva kategorije u ulazu za usporedbu.", "category_name": "", "confidence": "0"}
+        return {
+            "target_node_id": "",
+            "category_value": "",
+            "status": "NO_SOURCE_CATEGORY",
+            "note": "Nema DE BTG patha ni naziva kategorije u ulazu za usporedbu.",
+            "category_name": "",
+            "confidence": "0",
+        }
 
-    source_family = extract_btg_family(source_file) or extract_btg_family(clean(row.get("product type"))) or extract_btg_family(query_text)
+    # Najprije zaključaj BTG obitelj. Ako se obitelj zna, ne mapira se u druge obitelji.
+    source_family = (
+        extract_btg_family(source_file)
+        or extract_btg_family(clean(row.get("product type")))
+        or extract_btg_family(source_path)
+        or extract_btg_family(fallback_text)
+        or extract_btg_family(query_text)
+    )
+
     all_candidates = category_records_for_marketplace(category_index, mp)
     if not all_candidates:
-        return {"target_node_id": "", "category_value": "", "status": "NO_TARGET_BTG", "note": f"Nema učitanih BTG kategorija za {mp}. Ubaci {mp} BTG datoteke u BTG folder.", "category_name": "", "confidence": "0"}
+        return {
+            "target_node_id": "",
+            "category_value": "",
+            "status": "NO_TARGET_BTG",
+            "note": f"Nema učitanih BTG kategorija za {mp}. Ubaci {mp} BTG datoteke u BTG folder.",
+            "category_name": "",
+            "confidence": "0",
+        }
 
     candidates: List[Dict[str, str]] = []
     wrong_family_count = 0
@@ -1402,101 +1547,228 @@ def btg_similarity_mapping(
             "confidence": "0",
         }
 
-    source_depth = path_depth(source_path or query_text)
-    query_norm = normalize_match_text(query_text)
-    leaf_norm = normalize_match_text(leaf_name(source_path or query_text))
-    source_concepts = concepts_from_text(" | ".join([source_path, source_name, fallback_text, *bridge_texts]))
+    source_main_text = source_path or source_name or fallback_text or query_text
+    source_parts = category_path_parts(source_main_text)
+    source_top_text = top_category_name(source_main_text)
+    source_parent_text = parent_category_name(source_main_text)
+    source_leaf_text = leaf_name(source_main_text)
+    source_leaf_norm = normalize_match_text(source_leaf_text)
+    source_depth = path_depth(source_main_text)
 
-    # Prvo pokušaj tražiti bitan leaf concept iz DE kategorije.
-    # Ako DE nije prepoznat, pokušaj iz FR/IT/ES bridge kategorija.
-    must_have_concepts = required_leaf_concepts(source_path or source_name)
+    # FR/IT/ES službeni mapping koristi se samo interno kao bridge, čak i ako korisnik nije označio te države za izlaz.
+    bridge_texts, bridge_used = bridge_category_texts(mapping_index, category_index, source_node_id, skip_marketplace=mp)
 
-    if not must_have_concepts:
-        for bridge_text in bridge_texts:
-            must_have_concepts |= required_leaf_concepts(bridge_text)
+    # Leaf prijevodi: najvažnije, jer leaf odlučuje konkretan browse node.
+    translated_leaf_terms, translation_notes = translated_leaf_queries(source_leaf_text, mp, bridge_texts)
+    leaf_queries = unique_nonempty([*translated_leaf_terms, source_leaf_text])
 
-    if not must_have_concepts:
-        must_have_concepts = required_leaf_concepts(query_text)
+    # Parent prijevodi: Kompostierung & Gartenabfall / Gartengestaltung & Rankhilfen itd.
+    parent_queries = unique_nonempty([source_parent_text])
+    parent_translation_notes: List[str] = []
+    if source_parent_text:
+        parent_translation = translate_category_term(source_parent_text, "DE", mp)
+        if clean(parent_translation.get("text")):
+            parent_queries.append(clean(parent_translation.get("text")))
+        parent_translation_notes.append(f"DE parent translate={parent_translation.get('status', '-')}/{parent_translation.get('provider', '-')}")
+
+    # Parent iz FR/IT/ES bridge kategorija ako njemački prijevod nije dovoljno dobar.
+    for bridge_text in bridge_texts[:8]:
+        bridge_parent = parent_category_name(bridge_text)
+        if not bridge_parent:
+            continue
+        parent_translation = translate_category_term(bridge_parent, "AUTO", mp)
+        if clean(parent_translation.get("text")):
+            parent_queries.append(clean(parent_translation.get("text")))
+        if parent_translation.get("status") not in {"cached", "translated", "same_language"}:
+            parent_translation_notes.append(f"bridge parent translate={parent_translation.get('status', '-')}/{parent_translation.get('provider', '-')}")
+    parent_queries = unique_nonempty(parent_queries)
+
+    # Top kategorija čuva širu kategoriju, npr. Gartenarbeit/Garden/Ogród.
+    top_queries = unique_nonempty([source_top_text])
+    top_translation_notes: List[str] = []
+    if source_top_text:
+        top_translation = translate_category_term(source_top_text, "DE", mp)
+        if clean(top_translation.get("text")):
+            top_queries.append(clean(top_translation.get("text")))
+        top_translation_notes.append(f"DE top translate={top_translation.get('status', '-')}/{top_translation.get('provider', '-')}")
+    for bridge_text in bridge_texts[:8]:
+        bridge_top = top_category_name(bridge_text)
+        if not bridge_top:
+            continue
+        top_translation = translate_category_term(bridge_top, "AUTO", mp)
+        if clean(top_translation.get("text")):
+            top_queries.append(clean(top_translation.get("text")))
+    top_queries = unique_nonempty(top_queries)
+
+    full_queries = unique_nonempty([
+        *translated_leaf_terms,
+        source_leaf_text,
+        source_parent_text,
+        source_top_text,
+        *bridge_texts,
+        source_path,
+        source_name,
+        fallback_text,
+    ])
+
+    source_leaf_concepts = specific_leaf_concepts(source_leaf_text)
+    translated_concepts = concepts_from_text(" | ".join(translated_leaf_terms))
+    parent_concepts = concepts_from_text(" | ".join(parent_queries))
+    bridge_concepts = concepts_from_text(" | ".join(bridge_texts))
+    source_context_concepts = concepts_from_text(" | ".join([source_path, source_name, fallback_text])) - source_leaf_concepts
+    source_concepts = source_leaf_concepts | translated_concepts | parent_concepts | bridge_concepts | source_context_concepts
+
+    # Ako leaf sadrži kritičan pojam, target ga mora imati ili mora jako dobro pogoditi prevedeni leaf.
+    must_have_concepts = set(source_leaf_concepts) or required_leaf_concepts(source_leaf_text) or (translated_concepts & set(CRITICAL_LEAF_CONCEPTS))
+    has_external_leaf_translation = bool(translated_leaf_terms)
+    has_context_translation = len(parent_queries) > 1 or len(top_queries) > 1
 
     best: Dict[str, str] | None = None
     best_score = -1.0
     best_family = ""
     best_depth = 0
-    best_concepts: set[str] = set()
-    best_concept_overlap: set[str] = set()
+    best_overlap: set[str] = set()
+    best_leaf_ratio = 0.0
+    best_parent_ratio = 0.0
+    best_top_ratio = 0.0
+    best_path_ratio = 0.0
 
     for cand in candidates:
         cand_path = clean(cand.get("node_path"))
         cand_name = clean(cand.get("category_name"))
         cand_source = clean(cand.get("source"))
+        cand_text = " | ".join(x for x in [cand_path, cand_name] if x)
+        if not cand_text:
+            continue
+
         cand_family = extract_btg_family(cand_source) or extract_btg_family(cand_path)
         cand_depth = path_depth(cand_path)
-        cand_text = " | ".join([cand_path, cand_name])
-        cand_norm = normalize_match_text(cand_text)
-        cand_leaf_norm = normalize_match_text(leaf_name(cand_path))
+        cand_leaf = leaf_name(cand_path or cand_name or cand_text)
+        cand_parent = parent_category_name(cand_path or cand_name or cand_text)
+        cand_top = top_category_name(cand_path or cand_name or cand_text)
+
         cand_concepts = concepts_from_text(cand_text)
         overlap = source_concepts & cand_concepts
-
-        # Ako source ima prepoznate pojmove, a kandidat nema nijedan zajednički pojam, ne uzimamo ga.
-        # Ovo sprječava slučajeve tipa DE "Mülltonnen" -> PL "Naczynia kuchenne".
-        if source_concepts and not overlap:
-            continue
 
         conflict, _conflict_reason = has_blocking_concept_conflict(source_concepts, cand_concepts)
         if conflict:
             continue
 
-        # Ako je zadnji dio DE kategorije jasan i bitan (npr. Mülltonnen, Wassertanks),
-        # target mora imati taj isti prevedeni concept. Inače radije ostavljamo prazno.
-        if must_have_concepts and not (must_have_concepts & cand_concepts):
+        leaf_ratio = best_token_ratio(leaf_queries, cand_leaf)
+        path_ratio = best_token_ratio(leaf_queries, cand_text)
+        parent_ratio = best_token_ratio(parent_queries, " | ".join([cand_parent, cand_text]))
+        top_ratio = best_token_ratio(top_queries, " | ".join([cand_top, cand_text]))
+        full_path_ratio = best_token_ratio(full_queries, cand_text)
+
+        # Ako imamo prevedeni leaf, kandidat mora barem djelomično pogoditi konkretni leaf.
+        # To sprječava da npr. Komposte završe u bilo kojoj vrtnoj kategoriji.
+        if has_external_leaf_translation and max(leaf_ratio, path_ratio) < 54 and not (must_have_concepts & cand_concepts):
             continue
 
-        # Za duboke putanje sa 3+ concepta jedan overlap je često preopćenit.
-        # Npr. Garten + Wassertanks ne smije završiti u Donice samo zato što obje imaju "vrt".
-        if len(source_concepts) >= 3 and len(overlap) < 2:
+        # Ako nema prijevoda, ne oslanjamo se na opći kontekst. Leaf mora biti konceptualno ili tekstualno jak.
+        if not has_external_leaf_translation:
+            if source_leaf_concepts and not (source_leaf_concepts & cand_concepts):
+                continue
+            if not source_leaf_concepts and source_leaf_norm and max(leaf_ratio, path_ratio) < 76:
+                continue
+
+        # Ako postoji kritični leaf concept, target ga mora imati ili mora jako pogoditi leaf tekst.
+        if must_have_concepts and not (must_have_concepts & cand_concepts) and max(leaf_ratio, path_ratio) < 70:
             continue
 
-        base_score = token_sort_ratio(query_norm, cand_norm) * 0.16
-        leaf_score = token_sort_ratio(leaf_norm, cand_leaf_norm) * 0.10 if leaf_norm and cand_leaf_norm else 0
-        family_score = 32 if source_family and cand_family and source_family == cand_family else 0
-        depth_score = max(0, 10 - abs(source_depth - cand_depth) * 2.5) if source_depth and cand_depth else 0
-        concept_part = concept_score(source_concepts, cand_concepts) * 0.48
+        # Top/parent su zaštita od random kategorije: leaf može biti sličan, ali ne smije otići u krivi širi kontekst.
+        if has_context_translation:
+            if top_queries and top_ratio < 32 and parent_ratio < 45 and max(leaf_ratio, path_ratio) < 82:
+                continue
+            if parent_queries and parent_ratio < 32 and max(leaf_ratio, path_ratio) < 72:
+                continue
 
-        # Mali bonus ako je leaf isti ili vrlo sličan, korisno za IE/engleske BTG-ove.
-        leaf_exact_bonus = 8 if leaf_norm and cand_leaf_norm and leaf_norm == cand_leaf_norm else 0
-        score = base_score + leaf_score + family_score + depth_score + concept_part + leaf_exact_bonus
+        # Ako se podudaraju samo generički pojmovi poput garden/tools/storage, a leaf je slab, preskoči.
+        if max(leaf_ratio, path_ratio) < 58 and overlap and overlap.issubset(GENERIC_CONTEXT_CONCEPTS):
+            continue
+
+        family_score = 30 if source_family and cand_family and source_family == cand_family else 0
+        depth_score = max(0, 7 - abs(source_depth - cand_depth) * 1.8) if source_depth and cand_depth else 0
+
+        # Težine: leaf najviše, parent drugi, top/family kao sigurnosni okvir.
+        leaf_score = leaf_ratio * 0.38
+        parent_score = parent_ratio * 0.17
+        top_score = top_ratio * 0.10
+        path_score = path_ratio * 0.10
+        full_score = full_path_ratio * 0.04
+        leaf_concept_score = concept_score((source_leaf_concepts | translated_concepts), cand_concepts) * 0.17
+        context_score = concept_score(source_context_concepts | parent_concepts, cand_concepts) * 0.04
+
+        score = (
+            family_score
+            + depth_score
+            + leaf_score
+            + parent_score
+            + top_score
+            + path_score
+            + full_score
+            + leaf_concept_score
+            + context_score
+        )
 
         if score > best_score:
             best = cand
             best_score = score
             best_family = cand_family
             best_depth = cand_depth
-            best_concepts = cand_concepts
-            best_concept_overlap = overlap
+            best_overlap = overlap
+            best_leaf_ratio = leaf_ratio
+            best_parent_ratio = parent_ratio
+            best_top_ratio = top_ratio
+            best_path_ratio = path_ratio
+
+    bridge_info = ",".join(bridge_used) if bridge_used else "-"
+    translation_info_text = "; ".join([*translation_notes, *parent_translation_notes, *top_translation_notes]) if (translation_notes or parent_translation_notes or top_translation_notes) else "-"
+    leaf_query_info = " | ".join(translated_leaf_terms[:3]) if translated_leaf_terms else "-"
+    parent_query_info = " | ".join(parent_queries[:3]) if parent_queries else "-"
+    top_query_info = " | ".join(top_queries[:3]) if top_queries else "-"
 
     if not best:
         return {
             "target_node_id": "",
             "category_value": "",
             "status": "NO_SAFE_BTG_MATCH",
-            "note": f"Nema sigurnog {mp} prijedloga. Bridge={bridge_info}; kandidati iz krivih BTG obitelji su preskočeni ({wrong_family_count}); traženi leaf concepts={','.join(sorted(must_have_concepts)) or '-'}; source concepts={','.join(sorted(source_concepts)) or '-'}.",
+            "note": (
+                f"Nema sigurnog {mp} prijedloga. Top='{source_top_text}', parent='{source_parent_text}', leaf='{source_leaf_text}', "
+                f"translated_leaf='{leaf_query_info}', parent_query='{parent_query_info}', top_query='{top_query_info}', "
+                f"bridge={bridge_info}, translation={translation_info_text}. Kandidati iz krivih BTG obitelji preskočeni={wrong_family_count}; "
+                f"required={','.join(sorted(must_have_concepts)) or '-'}; source concepts={','.join(sorted(source_concepts)) or '-'} ."
+            ),
             "category_name": "",
             "confidence": "0",
         }
 
-    # Sa konceptima može proći nešto niži tekstualni score; bez koncepata tražimo puno strožu sličnost.
-    threshold = 62 if source_concepts and best_concept_overlap else 88
+    threshold = 61 if has_external_leaf_translation else 78
+    if has_context_translation:
+        threshold = max(58, threshold - 2)
+    if not best_overlap and best_leaf_ratio < 70:
+        threshold += 8
+    if best_parent_ratio < 35 and best_leaf_ratio < 72:
+        threshold += 5
+
     target_node_id = clean(best.get("node_id"))
     target_path = clean(best.get("node_path"))
     target_name = clean(best.get("category_name")) or category_name_from_path(target_path)
-    confidence = max(0.01, min(0.88, round(best_score / 100, 3)))
+    confidence = max(0.01, min(0.92, round(best_score / 100, 3)))
 
     if best_score < threshold:
         return {
             "target_node_id": "",
             "category_value": "",
             "status": "NO_SAFE_BTG_MATCH",
-            "note": f"Najbliži {mp} BTG zapis nije dovoljno siguran. Bridge={bridge_info}, Score={round(best_score, 1)}, threshold={threshold}, source_family={source_family or '-'}, best_family={best_family or '-'}, overlap={','.join(sorted(best_concept_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}.",
+            "note": (
+                f"Najbliži {mp} BTG zapis nije dovoljno siguran. Top='{source_top_text}', parent='{source_parent_text}', leaf='{source_leaf_text}', "
+                f"translated_leaf='{leaf_query_info}', parent_query='{parent_query_info}', top_query='{top_query_info}', "
+                f"bridge={bridge_info}, translation={translation_info_text}, score={round(best_score, 1)}, threshold={threshold}, "
+                f"leaf_ratio={round(best_leaf_ratio, 1)}, parent_ratio={round(best_parent_ratio, 1)}, top_ratio={round(best_top_ratio, 1)}, "
+                f"path_ratio={round(best_path_ratio, 1)}, source_family={source_family or '-'}, best_family={best_family or '-'}, "
+                f"overlap={','.join(sorted(best_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'} ."
+            ),
             "category_name": "",
             "confidence": "0",
         }
@@ -1504,12 +1776,19 @@ def btg_similarity_mapping(
     return {
         "target_node_id": target_node_id,
         "category_value": target_path,
-        "status": "BTG_SIMILAR_NEEDS_REVIEW",
-        "note": f"Prijedlog iz iste BTG obitelji + prijevodni concept match. Bridge={bridge_info}, Score={round(best_score, 1)}, family={best_family or source_family or '-'}, overlap={','.join(sorted(best_concept_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}, depth={source_depth}->{best_depth}. Ručno provjeriti prije potvrde.",
+        "status": "BTG_TRANSLATED_NEEDS_REVIEW" if has_external_leaf_translation else "BTG_SIMILAR_NEEDS_REVIEW",
+        "note": (
+            f"Prijedlog iz iste BTG obitelji. Top='{source_top_text}', parent='{source_parent_text}', leaf='{source_leaf_text}', "
+            f"translated_leaf='{leaf_query_info}', parent_query='{parent_query_info}', top_query='{top_query_info}', "
+            f"bridge={bridge_info}, translation={translation_info_text}, score={round(best_score, 1)}, "
+            f"family={best_family or source_family or '-'}, leaf_ratio={round(best_leaf_ratio, 1)}, "
+            f"parent_ratio={round(best_parent_ratio, 1)}, top_ratio={round(best_top_ratio, 1)}, path_ratio={round(best_path_ratio, 1)}, "
+            f"overlap={','.join(sorted(best_overlap)) or '-'}, required={','.join(sorted(must_have_concepts)) or '-'}, "
+            f"depth={source_depth}->{best_depth}. Ručno provjeriti prije potvrde."
+        ),
         "category_name": target_name,
         "confidence": str(confidence),
     }
-
 
 def openai_guess(row: Dict[str, Any], marketplace: str) -> Dict[str, Any]:
     env = load_env()
@@ -1851,6 +2130,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"saved": saved})
             elif self.path.startswith("/api/clear-cache"):
                 self._json(200, clear_btg_cache())
+            elif self.path.startswith("/api/clear-translation-cache"):
+                self._json(200, clear_translation_cache())
             elif self.path.startswith("/api/cancel"):
                 try:
                     data = json.loads(body.decode("utf-8")) if body else {}

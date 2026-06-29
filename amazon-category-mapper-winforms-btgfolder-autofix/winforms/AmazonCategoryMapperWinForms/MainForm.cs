@@ -13,6 +13,7 @@ public class MainForm : Form
     private Button _saveCsvButton = null!;
     private Button _saveCorrectionsButton = null!;
     private Button _clearCacheButton = null!;
+    private Button _clearTranslationCacheButton = null!;
     private Button _stopBackendButton = null!;
     private ProgressBar _progressBar = null!;
     private Label _progressText = null!;
@@ -53,6 +54,7 @@ public class MainForm : Form
         _saveCsvButton = new Button { Text = "Spremi novi CSV", Width = 150 };
         _saveCorrectionsButton = new Button { Text = "Spremi ručne ispravke", Width = 180 };
         _clearCacheButton = new Button { Text = "Obriši BTG cache", Width = 150 };
+        _clearTranslationCacheButton = new Button { Text = "Obriši translate cache", Width = 175 };
         _stopBackendButton = new Button { Text = "Zaustavi Python", Width = 140 };
         _progressBar = new ProgressBar { Width = 520, Height = 22, Minimum = 0, Maximum = 100, Value = 0 };
         _progressText = new Label { AutoSize = true, Text = "Progress: 0%" };
@@ -60,7 +62,7 @@ public class MainForm : Form
         _autoInfo = new Label
         {
             AutoSize = true,
-            Text = "Program automatski traži BTG folder i mapping_file.xls/xlsx. DE kategorija ide u izlaz. UK/source stupci su izbačeni. Učitava se samo CSV/XLSX/TXT s DE node ID-evima.",
+            Text = "Program automatski traži BTG folder i mapping_file.xls/xlsx. Najvažniji je DE node ID. NL/PL/IE/SE koriste BTG + opcionalni translate provider.",
         };
         _grid = new DataGridView
         {
@@ -97,7 +99,7 @@ public class MainForm : Form
             marketPanel.Controls.Add(cb);
         }
         top.Controls.Add(Row(new Label { Text = "Države:", Width = 150 }, marketPanel));
-        top.Controls.Add(Row(_overwrite, _startBackendButton, _mapButton, _saveCsvButton, _saveCorrectionsButton, _clearCacheButton, _stopBackendButton, _status));
+        top.Controls.Add(Row(_overwrite, _startBackendButton, _mapButton, _saveCsvButton, _saveCorrectionsButton, _clearCacheButton, _clearTranslationCacheButton, _stopBackendButton, _status));
         top.Controls.Add(Row(new Label { Text = "Obrada:", Width = 150 }, _progressBar, _progressText));
         top.Controls.Add(Row(new Label { Text = "Napomena:", Width = 150 }, _autoInfo));
 
@@ -107,6 +109,7 @@ public class MainForm : Form
         _startBackendButton.Click += async (_, _) => await StartBackendClicked();
         _mapButton.Click += async (_, _) => await MapClicked();
         _clearCacheButton.Click += async (_, _) => await ClearCacheClicked();
+        _clearTranslationCacheButton.Click += async (_, _) => await ClearTranslationCacheClicked();
         _stopBackendButton.Click += async (_, _) => await StopBackendClicked();
         FormClosing += MainForm_FormClosing;
         _saveCsvButton.Click += (_, _) => SaveCsvClicked();
@@ -202,6 +205,7 @@ public class MainForm : Form
             _status.Text = "Status: mapiranje u tijeku...";
             _mapButton.Enabled = false;
             _clearCacheButton.Enabled = false;
+            _clearTranslationCacheButton.Enabled = false;
             _stopBackendButton.Enabled = true;
 
             _progressPollingCts?.Cancel();
@@ -252,9 +256,11 @@ public class MainForm : Form
             _activeJobId = null;
             _mapButton.Enabled = true;
             _clearCacheButton.Enabled = true;
+            _clearTranslationCacheButton.Enabled = true;
             _stopBackendButton.Enabled = true;
         }
     }
+
 
     private async void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
@@ -269,18 +275,17 @@ public class MainForm : Form
             _status.Text = "Status: zatvaram aplikaciju i zaustavljam Python...";
             _mapButton.Enabled = false;
             _clearCacheButton.Enabled = false;
+            _clearTranslationCacheButton.Enabled = false;
             _stopBackendButton.Enabled = false;
 
             _progressPollingCts?.Cancel();
-
             var jobId = _activeJobId;
             _activeJobId = null;
-
             await BackendRunner.StopBackendAsync(jobId);
         }
         catch
         {
-            // Ne prikazujemo grešku kod zatvaranja da se aplikacija stvarno može ugasiti.
+            // Kod izlaza ne prikazujemo MessageBox da aplikacija može zatvoriti prozor.
         }
         finally
         {
@@ -399,6 +404,48 @@ public class MainForm : Form
         finally
         {
             _clearCacheButton.Enabled = true;
+        }
+    }
+
+    private async Task ClearTranslationCacheClicked()
+    {
+        try
+        {
+            if (!await BackendRunner.IsBackendHealthyAsync())
+            {
+                MessageBox.Show("Python backend ne radi. Prvo ga pokreni.");
+                return;
+            }
+
+            var answer = MessageBox.Show(
+                "Ovo briše samo cache kratkih prijevoda kategorija. Koristi se ako promijeniš translate provider ili misliš da prijevod nije dobar. Nastaviti?",
+                "Obriši translate cache",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (answer != DialogResult.Yes) return;
+
+            _clearTranslationCacheButton.Enabled = false;
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            var response = await client.PostAsync("http://127.0.0.1:8008/api/clear-translation-cache", new StringContent("{}", Encoding.UTF8, "application/json"));
+            var text = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                MessageBox.Show(text, "Greška kod brisanja translate cache-a");
+                return;
+            }
+
+            _status.Text = "Status: translate cache obrisan";
+            UpdateProgress(0, "Translate cache je obrisan. Sljedeće mapiranje ponovno prevodi leaf pojmove.");
+            _autoInfo.Text = await BackendRunner.GetBackendInfoAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.ToString(), "Greška kod brisanja translate cache-a");
+        }
+        finally
+        {
+            _clearTranslationCacheButton.Enabled = true;
         }
     }
 

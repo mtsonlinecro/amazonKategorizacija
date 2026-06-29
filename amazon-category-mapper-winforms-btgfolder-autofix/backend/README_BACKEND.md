@@ -50,3 +50,38 @@ POST /api/clear-cache
 ```
 
 Cache se i automatski osvježava ako se BTG datoteka promijeni po veličini ili modified datumu.
+
+## Opcionalni translate provider za NL/PL/IE/SE
+
+Za države bez direktnog Amazon European Browse Node Mappinga program sada može prevoditi samo zadnji dio njemačke kategorije, npr. `Rasenkanten`, u ciljni jezik i zatim tražiti rezultat u istoj BTG obitelji.
+
+Ključevi se podešavaju u:
+
+```txt
+backend/api_keys.py
+```
+
+Najjednostavnije je postaviti DeepL:
+
+```python
+TRANSLATION_ENABLED = True
+TRANSLATION_PROVIDER = "deepl"
+DEEPL_API_KEY = "OVDJE_API_KEY"
+DEEPL_USE_FREE_API = True
+```
+
+Ako ne želiš ručno birati provider, ostavi:
+
+```python
+TRANSLATION_PROVIDER = "auto"
+```
+
+Tada se koristi prvi provider za koji je postavljen API ključ. Podržani provider-i su: DeepL, Google Cloud Translation, Azure Translator i OpenAI.
+
+Prijevodni cache je u:
+
+```txt
+backend/cache/translation_cache.json
+```
+
+Cache sprema samo kratke prijevode leaf pojmova, ne BTG datoteke. Može se obrisati iz WinForms aplikacije gumbom **Obriši translate cache**.

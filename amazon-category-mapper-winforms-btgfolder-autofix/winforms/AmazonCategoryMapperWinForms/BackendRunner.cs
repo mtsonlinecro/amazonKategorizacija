@@ -101,9 +101,12 @@ public static class BackendRunner
             var btg = root.TryGetProperty("btg_folder", out var btgEl) ? btgEl.GetString() ?? "" : "";
             var mapping = root.TryGetProperty("mapping_file", out var mapEl) ? mapEl.GetString() ?? "" : "";
 
+            var provider = root.TryGetProperty("translation_provider", out var providerEl) ? providerEl.GetString() ?? "" : "";
+
             var btgText = string.IsNullOrWhiteSpace(btg) ? "BTG folder nije pronađen" : $"BTG: {btg}";
             var mappingText = string.IsNullOrWhiteSpace(mapping) ? "mapping_file nije pronađen" : $"Mapping: {mapping}";
-            return btgText + " | " + mappingText;
+            var translateText = string.IsNullOrWhiteSpace(provider) ? "Translate: nije dostupan" : $"Translate: {provider}";
+            return btgText + " | " + mappingText + " | " + translateText;
         }
         catch
         {
